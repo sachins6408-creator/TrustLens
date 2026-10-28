@@ -1,18 +1,87 @@
 const mongoose = require('mongoose');
 const Review = require('../models/Review');
 const Website = require('../models/Website');
+const EvaluationParameter = require('../models/EvaluationParameter');
+const { findDefaultParametersForCategory } = require('./evaluationParameterController');
 
-const REQUIRED_PARAMETERS = [
-  'productQuality',
-  'deliveryPerformance',
-  'customerSupport',
-  'paymentSecurity',
-  'refundProcess',
-  'websiteUsability',
-  'pricingTransparency',
-  'informationAccuracy',
-  'privacyDataHandling'
-];
+// Helper to get parameters for a category
+const getCategoryParameters = async (category) => {
+  if (!category) return findDefaultParametersForCategory('Other').parameters;
+
+  try {
+    const escaped = category.trim().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+    const record = await EvaluationParameter.findOne({
+      category: new RegExp(`^${escaped}$`, 'i')
+    });
+
+    if (record && record.parameters && record.parameters.length > 0) {
+      return record.parameters;
+    }
+  } catch (err) {
+    console.error('[Get Category Parameters Error]:', err.message);
+  }
+
+  return findDefaultParametersForCategory(category).parameters;
+};
+
+// Shared: Recalculate website parameterRatings & totalReviews (approved reviews only)
+const recalculateWebsiteRatings = async (websiteId) => {
+  const website = await Website.findById(websiteId);
+  if (!website) return null;
+
+  const categoryParams = await getCategoryParameters(website.category);
+  const approvedReviews = await Review.find({ website: websiteId, status: { $in: ['approved'] } });
+
+  const updatedParameterRatings = {};
+  const allParamKeys = new Set([...categoryParams]);
+  approvedReviews.forEach((r) => {
+    if (r.ratings) {
+      if (r.ratings instanceof Map) {
+        for (const key of r.ratings.keys()) allParamKeys.add(key);
+      } else if (typeof r.ratings === 'object') {
+        for (const key of Object.keys(r.ratings)) allParamKeys.add(key);
+      }
+    }
+  });
+
+  allParamKeys.forEach((param) => {
+    let sum = 0;
+    let count = 0;
+    approvedReviews.forEach((r) => {
+      let val = 0;
+      if (r.ratings instanceof Map) {
+        val = r.ratings.get(param) || 0;
+      } else if (r.ratings && typeof r.ratings === 'object') {
+        val = r.ratings[param] || 0;
+      }
+      if (val >= 1) {
+        sum += val;
+        count += 1;
+      }
+    });
+
+    updatedParameterRatings[param] = count > 0 ? Number((sum / count).toFixed(1)) : 0;
+  });
+
+  // Normalize to 0-100 trust score from parameter averages (if any rated)
+  const ratedParams = Object.values(updatedParameterRatings).filter((v) => v > 0);
+  if (ratedParams.length > 0) {
+    const avgParamScore = ratedParams.reduce((s, v) => s + v, 0) / ratedParams.length; // 1-5
+    website.trustScore = Number(((avgParamScore / 5) * 100).toFixed(0));
+    if (website.trustScore >= 80) website.trustCategory = 'Trusted';
+    else if (website.trustScore >= 50) website.trustCategory = 'Moderately Trusted';
+    else if (website.trustScore >= 1) website.trustCategory = 'Risky';
+    else website.trustCategory = 'Not Rated Yet';
+  } else {
+    website.trustScore = 0;
+    website.trustCategory = 'Not Rated Yet';
+  }
+
+  website.parameterRatings = updatedParameterRatings;
+  website.totalReviews = approvedReviews.length;
+  await website.save();
+  return website;
+};
 
 // @desc    Submit or update a review for a website
 // @route   POST /api/reviews
@@ -32,46 +101,80 @@ const createReview = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Target website not found' });
     }
 
-    // Normalize ratings from either nested ratings object or top-level fields
+    // 2. Fetch Dynamic Parameters for Website Category
+    const categoryParams = await getCategoryParameters(website.category);
+
+    // Normalize ratings from incoming ratings object or top-level fields
     const normalizedRatings = {};
-    REQUIRED_PARAMETERS.forEach((param) => {
-      // Check nested object first, then top-level param, then top-level param + 'Rating'
-      if (incomingRatings && incomingRatings[param] !== undefined) {
-        normalizedRatings[param] = Number(incomingRatings[param]);
-      } else if (req.body[param] !== undefined) {
-        normalizedRatings[param] = Number(req.body[param]);
-      } else if (req.body[`${param}Rating`] !== undefined) {
-        normalizedRatings[param] = Number(req.body[`${param}Rating`]);
+    const unratedParams = [];
+
+    // Check each expected dynamic parameter
+    categoryParams.forEach((param) => {
+      let score = 0;
+
+      if (incomingRatings && typeof incomingRatings === 'object') {
+        if (incomingRatings[param] !== undefined) {
+          score = Number(incomingRatings[param]);
+        } else {
+          // Check lowerCamelCase or stripped alias
+          const altKey = param.replace(/[^a-zA-Z0-9]/g, '');
+          for (const key of Object.keys(incomingRatings)) {
+            if (key.toLowerCase() === param.toLowerCase() || key.toLowerCase() === altKey.toLowerCase()) {
+              score = Number(incomingRatings[key]);
+              break;
+            }
+          }
+        }
+      }
+
+      if (score === 0 && req.body[param] !== undefined) {
+        score = Number(req.body[param]);
+      }
+
+      if (!score || isNaN(score) || score < 1 || score > 5) {
+        unratedParams.push(param);
       } else {
-        normalizedRatings[param] = 0;
+        normalizedRatings[param] = score;
       }
     });
 
-    // 2. Validate all 9 rating parameters (range 1 to 5)
-    for (const param of REQUIRED_PARAMETERS) {
-      const score = normalizedRatings[param];
-      if (!score || isNaN(score) || score < 1 || score > 5) {
-        return res.status(400).json({
-          success: false,
-          message: `Please provide a valid rating between 1 and 5 for ${param}`
-        });
-      }
+    // Also preserve any extra rated parameters if provided in incomingRatings
+    if (incomingRatings && typeof incomingRatings === 'object') {
+      Object.keys(incomingRatings).forEach((key) => {
+        if (normalizedRatings[key] === undefined && !isNaN(incomingRatings[key]) && Number(incomingRatings[key]) >= 1) {
+          normalizedRatings[key] = Number(incomingRatings[key]);
+        }
+      });
     }
 
-    // Calculate dynamic overall rating from the 9 parameters
-    const ratingValues = REQUIRED_PARAMETERS.map((param) => normalizedRatings[param]);
-    const overallRating = Number((ratingValues.reduce((sum, val) => sum + val, 0) / 9).toFixed(1));
+    // 3. Validate that all dynamic category parameters are rated
+    if (unratedParams.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Please provide a rating (1-5) for: ${unratedParams.join(', ')}`
+      });
+    }
+
+    // 4. Calculate dynamic overall rating from the rated category parameters
+    const ratingValues = Object.values(normalizedRatings);
+    const overallRating = Number(
+      (ratingValues.reduce((sum, val) => sum + val, 0) / (ratingValues.length || 1)).toFixed(1)
+    );
 
     const finalComment = (comment || commentAlias || '').trim();
 
-    // 3. Check if user has already reviewed this website
+    // 5. Check if user has already reviewed this website
     let review = await Review.findOne({ website: websiteId, user: userId });
 
     if (review) {
-      // Update existing review
+      // Update existing review - reset moderation status for re-review
       review.ratings = normalizedRatings;
       review.overallRating = overallRating;
       review.comment = finalComment;
+      review.status = 'approved';
+      review.moderationNote = '';
+      review.moderatedBy = null;
+      review.moderatedAt = null;
       await review.save();
     } else {
       // Create new review
@@ -80,24 +183,13 @@ const createReview = async (req, res, next) => {
         website: websiteId,
         ratings: normalizedRatings,
         overallRating,
-        comment: finalComment
+        comment: finalComment,
+        status: 'approved'
       });
-
-      // Increment totalReviews count on Website
-      website.totalReviews = (website.totalReviews || 0) + 1;
     }
 
-    // 4. Recalculate average parameter ratings for this website
-    const allReviews = await Review.find({ website: websiteId });
-    const updatedParameterRatings = {};
-
-    REQUIRED_PARAMETERS.forEach((param) => {
-      const sum = allReviews.reduce((acc, r) => acc + (r.ratings?.[param] || 0), 0);
-      updatedParameterRatings[param] = Number((sum / allReviews.length).toFixed(1));
-    });
-
-    website.parameterRatings = updatedParameterRatings;
-    await website.save();
+    // 6. Recalculate website parameter ratings from approved reviews only
+    await recalculateWebsiteRatings(websiteId);
 
     // Populate user name in returned review object
     await review.populate('user', 'name');
@@ -148,26 +240,8 @@ const deleteReview = async (req, res, next) => {
     // 3. Delete the review from MongoDB
     await Review.findByIdAndDelete(reviewId);
 
-    // 4. Recalculate average parameter ratings and review count for the target website
-    const remainingReviews = await Review.find({ website: websiteId });
-    const website = await Website.findById(websiteId);
-
-    if (website) {
-      website.totalReviews = remainingReviews.length;
-
-      const updatedParameterRatings = {};
-      REQUIRED_PARAMETERS.forEach((param) => {
-        if (remainingReviews.length > 0) {
-          const sum = remainingReviews.reduce((acc, r) => acc + (r.ratings?.[param] || 0), 0);
-          updatedParameterRatings[param] = Number((sum / remainingReviews.length).toFixed(1));
-        } else {
-          updatedParameterRatings[param] = 0;
-        }
-      });
-
-      website.parameterRatings = updatedParameterRatings;
-      await website.save();
-    }
+    // 4. Recalculate website averages from approved reviews only
+    await recalculateWebsiteRatings(websiteId);
 
     return res.status(200).json({
       success: true,
@@ -180,4 +254,4 @@ const deleteReview = async (req, res, next) => {
   }
 };
 
-module.exports = { createReview, deleteReview };
+module.exports = { createReview, deleteReview, recalculateWebsiteRatings };

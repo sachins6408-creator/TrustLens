@@ -19,6 +19,11 @@ const websiteSchema = new mongoose.Schema(
       required: [true, 'Website category is required'],
       trim: true
     },
+    url: {
+      type: String,
+      trim: true,
+      default: ''
+    },
     description: {
       type: String,
       trim: true,
@@ -35,17 +40,20 @@ const websiteSchema = new mongoose.Schema(
       enum: ['Trusted', 'Moderately Trusted', 'Risky', 'Not Rated Yet'],
       default: 'Not Rated Yet'
     },
-    // Parameter ratings breakdown (1 to 5 scale, average of submitted reviews)
+    status: {
+      type: String,
+      enum: ['active', 'pending', 'rejected', 'inactive', 'Active', 'Inactive', 'Pending', 'Rejected', 'new_request', 'New Website Request', 'suspicious', 'Suspicious', 'flagged', 'Flagged'],
+      default: 'active'
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    // Dynamic parameter ratings breakdown (1 to 5 scale, average of submitted reviews)
     parameterRatings: {
-      productQuality: { type: Number, default: 0 },
-      deliveryPerformance: { type: Number, default: 0 },
-      customerSupport: { type: Number, default: 0 },
-      paymentSecurity: { type: Number, default: 0 },
-      refundProcess: { type: Number, default: 0 },
-      websiteUsability: { type: Number, default: 0 },
-      pricingTransparency: { type: Number, default: 0 },
-      informationAccuracy: { type: Number, default: 0 },
-      privacyDataHandling: { type: Number, default: 0 }
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
     },
     totalReviews: {
       type: Number,

@@ -20,15 +20,9 @@ const reviewSchema = new mongoose.Schema(
       required: [true, 'Website ID is required']
     },
     ratings: {
-      productQuality: ratingFieldSchema,
-      deliveryPerformance: ratingFieldSchema,
-      customerSupport: ratingFieldSchema,
-      paymentSecurity: ratingFieldSchema,
-      refundProcess: ratingFieldSchema,
-      websiteUsability: ratingFieldSchema,
-      pricingTransparency: ratingFieldSchema,
-      informationAccuracy: ratingFieldSchema,
-      privacyDataHandling: ratingFieldSchema
+      type: mongoose.Schema.Types.Mixed,
+      required: true,
+      default: {}
     },
     comment: {
       type: String,
@@ -39,6 +33,25 @@ const reviewSchema = new mongoose.Schema(
       type: Number,
       min: [1, 'Overall rating must be at least 1'],
       max: [5, 'Overall rating cannot exceed 5']
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected', 'flagged'],
+      default: 'approved'
+    },
+    moderationNote: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    moderatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    moderatedAt: {
+      type: Date,
+      default: null
     }
   },
   {

@@ -29,4 +29,36 @@ const protect = async (req, res, next) => {
   }
 };
 
-module.exports = { protect };
+// Admin role verification middleware
+const admin = (req, res, next) => {
+  if (req.user && req.user.role === 'admin') {
+    return next();
+  }
+  return res.status(403).json({
+    success: false,
+    message: 'Access denied: Admin privileges required'
+  });
+};
+
+// Optional protect middleware: Populates req.user if valid token provided, otherwise continues as guest
+const optionalProtect = async (req, res, next) => {
+  let token;
+
+  if (
+    req.headers.authorization &&
+    req.headers.authorization.startsWith('Bearer')
+  ) {
+    try {
+      token = req.headers.authorization.split(' ')[1];
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'trustlens_secret_key_2026_mca_project');
+      req.user = await User.findById(decoded.id).select('-password');
+    } catch (error) {
+      req.user = null;
+    }
+  }
+
+  next();
+};
+
+module.exports = { protect, admin, optionalProtect };
+

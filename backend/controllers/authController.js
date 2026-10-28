@@ -66,6 +66,7 @@ const registerUser = async (req, res, next) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        status: user.status || 'active',
         createdAt: user.createdAt
       }
     });
@@ -99,16 +100,24 @@ const loginUser = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
-    // 3. Verify bcrypt password
+    // 3. Check if user account is active
+    if (user.status === 'inactive') {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been deactivated. Please contact an administrator.'
+      });
+    }
+
+    // 4. Verify bcrypt password
     const isMatch = await user.matchPassword(password);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
-    // 4. Generate JWT session token
+    // 5. Generate JWT session token
     const token = generateToken(user._id, user.role);
 
-    // 5. Return success response with token and safe user info
+    // 6. Return success response with token and safe user info
     return res.status(200).json({
       success: true,
       message: 'Login successful',
@@ -117,7 +126,8 @@ const loginUser = async (req, res, next) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        status: user.status || 'active'
       }
     });
 

@@ -1,11 +1,12 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const dotenv = require('dotenv');
 const connectDB = require('./config/db');
 const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 
 // Load environment variables
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 // Connect to MongoDB Database
 connectDB();
@@ -22,7 +23,11 @@ app.use('/api/health', require('./routes/healthRoutes'));
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/websites', require('./routes/websiteRoutes'));
 app.use('/api/reviews', require('./routes/reviewRoutes'));
+app.use('/api/evaluation-parameters', require('./routes/evaluationParameterRoutes'));
 app.use('/api/history', require('./routes/historyRoutes'));
+app.use('/api/users', require('./routes/userRoutes'));
+app.use('/api/admin', require('./routes/adminRoutes'));
+app.use('/api/data-mining', require('./routes/dataMiningRoutes'));
 
 // 404 & Error Handling Middlewares
 app.use(notFound);
@@ -32,6 +37,17 @@ const PORT = process.env.PORT || 5000;
 
 const server = app.listen(PORT, () => {
   console.log(`[TrustLens Backend]: Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+});
+
+// Handle server startup errors gracefully (e.g. port already in use)
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`[TrustLens Backend]: Port ${PORT} is already in use by another process.`);
+    console.error(`[TrustLens Backend]: Stop the other process (e.g. "Stop-Process -Id (Get-NetTCPConnection -LocalPort ${PORT}).OwningProcess -Force") or change PORT in .env`);
+  } else {
+    console.error(`[TrustLens Backend]: Server error -> ${error.message}`);
+  }
+  process.exit(1);
 });
 
 // Handle unhandled promise rejections gracefully
