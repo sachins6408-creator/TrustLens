@@ -4,7 +4,9 @@ const path = require('path');
 const dotenv = require('dotenv');
 const connectDB = require('./config/db');
 const { notFound, errorHandler } = require('./middleware/errorMiddleware');
+const dns = require('dns');
 
+dns.setServers(['8.8.8.8', '8.8.4.4']);
 // Load environment variables
 dotenv.config({ path: path.join(__dirname, '.env') });
 
