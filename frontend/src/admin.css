@@ -881,3 +881,135 @@
   background: #0f172a;
   color: #f8fafc;
 }
+
+
+/* ============================================================
+   USER DETAILS MODAL - RESPONSIVE & LAYOUT OPTIMIZATIONS
+   ============================================================ */
+.modal-backdrop-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 1050;
+  overflow-y: auto;
+}
+
+.modal-card.modal-card-wide {
+  max-width: 820px;
+  width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card, #131d32);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  border-radius: var(--radius-lg, 16px);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+
+.modal-card-wide .modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  max-height: calc(90vh - 75px);
+}
+
+/* User profile key-value grid */
+.user-profile-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important;
+  gap: 1rem !important;
+  margin-bottom: 1.25rem !important;
+}
+
+.detail-field-box {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-md, 10px);
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.detail-field-box .field-value {
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+
+/* User Activity 3-stat cards grid */
+.user-stats-container .stats-metric-cards {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
+  gap: 1rem !important;
+}
+
+.user-stats-container .metric-stat-card {
+  min-width: 0 !important;
+  padding: 1.2rem 1rem !important;
+  background: rgba(15, 23, 42, 0.6) !important;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08)) !important;
+  border-radius: var(--radius-md, 10px) !important;
+}
+
+/* Recent Reviews & Searches rows */
+.recent-activity-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.06));
+  border-radius: var(--radius-sm, 8px);
+  padding: 0.65rem 0.85rem;
+}
+
+.recent-activity-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  word-break: break-word;
+}
+
+@media (max-width: 640px) {
+  .modal-backdrop-overlay {
+    padding: 0.5rem;
+    align-items: flex-end;
+  }
+
+  .modal-card.modal-card-wide {
+    max-height: 95vh;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .modal-card-wide .modal-body {
+    padding: 1rem;
+    max-height: calc(95vh - 65px);
+  }
+
+  .user-profile-details-grid {
+    grid-template-columns: 1fr !important;
+    gap: 0.75rem !important;
+  }
+
+  .user-stats-container .stats-metric-cards {
+    grid-template-columns: 1fr !important;
+    gap: 0.75rem !important;
+  }
+
+  .recent-activity-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
