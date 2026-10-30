@@ -16,17 +16,21 @@ connectDB();
 const app = express();
 
 // Middlewares
+// Allowed origins: localhost (dev) + any *.vercel.app preview/production + explicit FRONTEND_URL
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
+// Match any Vercel preview or production domain automatically
+const vercelOriginRegex = /^https:\/\/[\w-]+(\.vercel\.app)$/;
+
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (mobile apps, Postman, curl)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
+    if (allowedOrigins.includes(origin) || vercelOriginRegex.test(origin)) {
       callback(null, true);
     } else {
       callback(new Error(`CORS: Origin not allowed → ${origin}`));
