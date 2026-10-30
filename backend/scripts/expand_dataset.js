@@ -1,3 +1,8 @@
+const dns = require('dns');
+
+// Fix MongoDB SRV DNS resolution
+dns.setServers(['8.8.8.8', '8.8.4.4']);
+
 const mongoose = require('mongoose');
 const path = require('path');
 const bcrypt = require('bcryptjs');
@@ -176,7 +181,7 @@ async function expandDataset() {
 
     // Filter candidate users who have not yet reviewed this website
     const candidateUsers = allUsers.filter((u) => !existingUserIds.has(u._id.toString()));
-    
+
     // Shuffle candidate users deterministically
     const shuffled = [...candidateUsers].sort((a, b) => {
       const hA = ((hash ^ a._id.toString().charCodeAt(10)) * 17) % 100;
