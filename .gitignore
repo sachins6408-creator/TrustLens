@@ -2,6 +2,8 @@ node_modules/
 .env
 .env.*
 !.env.example
+# Allow frontend production env (contains no secrets, only public API URL)
+!frontend/.env.production
 
 dist/
 build/

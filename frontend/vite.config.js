@@ -6,10 +6,11 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
+      // Dev-only proxy: in production, Vercel rewrites /api → Render via VITE_API_URL
       '/api': {
-        target: 'http://localhost:5001',
-        changeOrigin: true
-      }
-    }
-  }
+        target: process.env.VITE_API_URL || 'http://localhost:5001',
+        changeOrigin: true,
+      },
+    },
+  },
 });
