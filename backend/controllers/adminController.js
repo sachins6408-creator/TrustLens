@@ -399,7 +399,7 @@ const adminDeleteWebsite = async (req, res, next) => {
 // @access  Private/Admin
 const adminGetReviews = async (req, res, next) => {
   try {
-    const { status, search, websiteId, sortBy } = req.query;
+    const { status, search, websiteId, sortBy, page, limit } = req.query;
     const filter = {};
     const normalizedStatus = (status || 'all').trim().toLowerCase();
 
@@ -408,7 +408,6 @@ const adminGetReviews = async (req, res, next) => {
 
     // 1. Filter Reviews
     if (isNewRequestFilter) {
-      // Don't fetch reviews when user specifically filters for website requests
       filter._id = null; // matches nothing
     } else if (normalizedStatus !== 'all') {
       filter.status = normalizedStatus;
@@ -419,61 +418,7 @@ const adminGetReviews = async (req, res, next) => {
       filter.website = websiteId;
     }
 
-    // Search: match review comment OR user name via lookup
-    let reviewsQuery = Review.find(filter)
-      .populate('user', 'name email')
-      .populate('website', 'name domain category')
-      .populate('moderatedBy', 'name email');
-
-    const sortOptions = {};
-    switch ((sortBy || 'newest').toLowerCase()) {
-      case 'oldest': sortOptions.createdAt = 1; break;
-      case 'rating-desc': sortOptions.overallRating = -1; break;
-      case 'rating-asc': sortOptions.overallRating = 1; break;
-      default: sortOptions.createdAt = -1;
-    }
-    reviewsQuery = reviewsQuery.sort(sortOptions);
-
-    let reviews = await reviewsQuery;
-
-    // If search term, filter reviews after populate
-    if (search && search.trim()) {
-      const term = search.trim().toLowerCase();
-      reviews = reviews.filter(
-        (r) =>
-          (r.comment || '').toLowerCase().includes(term) ||
-          (r.user && r.user.name && r.user.name.toLowerCase().includes(term)) ||
-          (r.user && r.user.email && r.user.email.toLowerCase().includes(term)) ||
-          (r.website && r.website.name && r.website.name.toLowerCase().includes(term)) ||
-          (r.website && r.website.domain && r.website.domain.toLowerCase().includes(term))
-      );
-    }
-
-    // 2. Fetch New Website Requests (included when filter is 'all', 'pending', or 'suspicious' / 'new_requests')
-    let websiteRequests = [];
-    if (normalizedStatus === 'all' || normalizedStatus === 'pending' || isNewRequestFilter) {
-      let webReqQuery = Website.find({
-        status: { $in: ['suspicious', 'Suspicious', 'new_request', 'New Website Request', 'pending', 'Pending'] }
-      })
-        .populate('createdBy', 'name email')
-        .sort({ createdAt: -1 });
-
-      websiteRequests = await webReqQuery;
-
-      if (search && search.trim()) {
-        const term = search.trim().toLowerCase();
-        websiteRequests = websiteRequests.filter(
-          (w) =>
-            (w.name || '').toLowerCase().includes(term) ||
-            (w.domain || '').toLowerCase().includes(term) ||
-            (w.category || '').toLowerCase().includes(term) ||
-            (w.createdBy && w.createdBy.name && w.createdBy.name.toLowerCase().includes(term)) ||
-            (w.createdBy && w.createdBy.email && w.createdBy.email.toLowerCase().includes(term))
-        );
-      }
-    }
-
-    // 3. Compute summary counts
+    // Compute summary counts upfront
     const [reviewSummaryAgg, newRequestsCount] = await Promise.all([
       Review.aggregate([
         { $group: { _id: '$status', count: { $sum: 1 } } }
@@ -489,9 +434,104 @@ const adminGetReviews = async (req, res, next) => {
     });
     summaryObj.total = summaryObj.pending + summaryObj.approved + summaryObj.rejected + summaryObj.flagged + newRequestsCount;
 
+    // Check pagination parameters (e.g. 25 per page)
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const isPaginationRequested = !isNaN(pageNum) && pageNum > 0 && !isNaN(limitNum) && limitNum > 0;
+
+    // Sort configuration
+    const sortOptions = {};
+    switch ((sortBy || 'newest').toLowerCase()) {
+      case 'oldest': sortOptions.createdAt = 1; break;
+      case 'rating-desc': sortOptions.overallRating = -1; break;
+      case 'rating-asc': sortOptions.overallRating = 1; break;
+      default: sortOptions.createdAt = -1;
+    }
+
+    const hasSearch = search && search.trim();
+    const searchTerm = hasSearch ? search.trim().toLowerCase() : '';
+
+    let reviews = [];
+    let totalFilteredReviews = 0;
+
+    if (hasSearch) {
+      let candidateReviews = await Review.find(filter)
+        .populate('user', 'name email')
+        .populate('website', 'name domain category')
+        .populate('moderatedBy', 'name email')
+        .sort(sortOptions)
+        .lean();
+
+      const matchedReviews = candidateReviews.filter(
+        (r) =>
+          (r.comment || '').toLowerCase().includes(searchTerm) ||
+          (r.user && r.user.name && r.user.name.toLowerCase().includes(searchTerm)) ||
+          (r.user && r.user.email && r.user.email.toLowerCase().includes(searchTerm)) ||
+          (r.website && r.website.name && r.website.name.toLowerCase().includes(searchTerm)) ||
+          (r.website && r.website.domain && r.website.domain.toLowerCase().includes(searchTerm))
+      );
+
+      totalFilteredReviews = matchedReviews.length;
+
+      if (isPaginationRequested) {
+        const startIndex = (pageNum - 1) * limitNum;
+        reviews = matchedReviews.slice(startIndex, startIndex + limitNum);
+      } else {
+        reviews = matchedReviews;
+      }
+    } else {
+      totalFilteredReviews = await Review.countDocuments(filter);
+
+      let reviewsQuery = Review.find(filter)
+        .populate('user', 'name email')
+        .populate('website', 'name domain category')
+        .populate('moderatedBy', 'name email')
+        .sort(sortOptions);
+
+      if (isPaginationRequested) {
+        reviewsQuery = reviewsQuery.skip((pageNum - 1) * limitNum).limit(limitNum);
+      }
+
+      reviews = await reviewsQuery.lean();
+    }
+
+    // 2. Fetch New Website Requests
+    let websiteRequests = [];
+    let totalWebsiteRequests = 0;
+    if (normalizedStatus === 'all' || normalizedStatus === 'pending' || isNewRequestFilter) {
+      let webReqQuery = Website.find({
+        status: { $in: ['suspicious', 'Suspicious', 'new_request', 'New Website Request', 'pending', 'Pending'] }
+      })
+        .populate('createdBy', 'name email')
+        .sort({ createdAt: -1 })
+        .lean();
+
+      let allRequests = await webReqQuery;
+
+      if (hasSearch) {
+        allRequests = allRequests.filter(
+          (w) =>
+            (w.name || '').toLowerCase().includes(searchTerm) ||
+            (w.domain || '').toLowerCase().includes(searchTerm) ||
+            (w.category || '').toLowerCase().includes(searchTerm) ||
+            (w.createdBy && w.createdBy.name && w.createdBy.name.toLowerCase().includes(searchTerm)) ||
+            (w.createdBy && w.createdBy.email && w.createdBy.email.toLowerCase().includes(searchTerm))
+        );
+      }
+      totalWebsiteRequests = allRequests.length;
+      websiteRequests = allRequests;
+    }
+
+    const totalPages = isPaginationRequested ? Math.ceil(totalFilteredReviews / limitNum) || 1 : 1;
+
     return res.status(200).json({
       success: true,
       count: reviews.length + websiteRequests.length,
+      totalReviews: totalFilteredReviews,
+      totalWebsiteRequests,
+      currentPage: isPaginationRequested ? pageNum : 1,
+      totalPages,
+      limit: isPaginationRequested ? limitNum : reviews.length,
       summary: summaryObj,
       reviews,
       websiteRequests

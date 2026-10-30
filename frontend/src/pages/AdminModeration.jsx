@@ -17,13 +17,19 @@ const AdminModeration = () => {
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('newest');
 
+  // Pagination (Multipart list - 25 items per part)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalReviewsCount, setTotalReviewsCount] = useState(0);
+  const PAGE_SIZE = 25;
+
   // Actions
   const [actionLoadingId, setActionLoadingId] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [moderationNote, setModerationNote] = useState({});
   const [expandedReviewId, setExpandedReviewId] = useState(null);
 
-  const fetchReviews = useCallback(async () => {
+  const fetchReviews = useCallback(async (targetPage = currentPage) => {
     setLoading(true);
     setError('');
     try {
@@ -31,6 +37,8 @@ const AdminModeration = () => {
       if (statusFilter) params.append('status', statusFilter);
       if (search.trim()) params.append('search', search.trim());
       if (sortBy) params.append('sortBy', sortBy);
+      params.append('page', targetPage);
+      params.append('limit', PAGE_SIZE);
 
       const res = await fetch(`/api/admin/reviews?${params.toString()}`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -40,6 +48,9 @@ const AdminModeration = () => {
         setReviews(data.reviews || []);
         setWebsiteRequests(data.websiteRequests || []);
         setSummary(data.summary || { pending: 0, approved: 0, rejected: 0, flagged: 0, new_requests: 0, total: 0 });
+        setTotalPages(data.totalPages || 1);
+        setTotalReviewsCount(data.totalReviews !== undefined ? data.totalReviews : (data.reviews || []).length);
+        setCurrentPage(data.currentPage || targetPage);
       } else {
         setError(data.message || 'Failed to load reviews and requests');
       }
@@ -48,11 +59,20 @@ const AdminModeration = () => {
     } finally {
       setLoading(false);
     }
-  }, [token, statusFilter, search, sortBy]);
+  }, [token, statusFilter, search, sortBy, currentPage]);
 
+  // When filters or search changes, reset to page 1
   useEffect(() => {
-    fetchReviews();
-  }, [fetchReviews]);
+    setCurrentPage(1);
+    fetchReviews(1);
+  }, [statusFilter, search, sortBy]);
+
+  const handlePageChange = (newPage) => {
+    if (newPage < 1 || newPage > totalPages || newPage === currentPage) return;
+    setCurrentPage(newPage);
+    fetchReviews(newPage);
+    window.scrollTo({ top: 300, behavior: 'smooth' });
+  };
 
   // Handle Review Moderation Status Update
   const handleUpdateStatus = async (reviewId, newStatus) => {
@@ -76,7 +96,7 @@ const AdminModeration = () => {
         setSuccess(data.message);
         setModerationNote((prev) => ({ ...prev, [reviewId]: '' }));
         setExpandedReviewId(null);
-        fetchReviews();
+        fetchReviews(currentPage);
       } else {
         setError(data.message || 'Failed to update review status');
       }
@@ -104,7 +124,7 @@ const AdminModeration = () => {
       const data = await res.json();
       if (res.ok && data.success) {
         setSuccess(data.message || `Website request successfully ${newStatus === 'active' ? 'approved and activated' : 'rejected'}.`);
-        fetchReviews();
+        fetchReviews(currentPage);
       } else {
         setError(data.message || 'Failed to update website request status');
       }
@@ -128,7 +148,7 @@ const AdminModeration = () => {
       if (res.ok && data.success) {
         setSuccess(data.message);
         setConfirmDeleteId(null);
-        fetchReviews();
+        fetchReviews(currentPage);
       } else {
         setError(data.message || 'Failed to delete review');
       }
@@ -159,124 +179,276 @@ const AdminModeration = () => {
     if (isValidDomain) {
       return { valid: true, label: `✓ Valid (${site.domain})` };
     }
-    return { valid: false, label: '⚠️ Invalid Domain' };
+    try {
+      new URL(url.startsWith('http') ? url : `https://${url}`);
+      return { valid: true, label: `✓ Valid Format` };
+    } catch (e) {
+      return { valid: false, label: '⚠️ Invalid Domain / URL' };
+    }
   };
 
-  const filterTabs = [
-    { key: 'all', label: 'All', count: summary.total },
-    { key: 'pending', label: 'Pending', count: summary.pending },
-    { key: 'new_requests', label: 'New Website Requests', count: summary.new_requests || 0 },
-    { key: 'flagged', label: 'Flagged', count: summary.flagged },
-    { key: 'approved', label: 'Approved', count: summary.approved },
-    { key: 'rejected', label: 'Rejected', count: summary.rejected }
-  ];
+  // Helper to render pagination controls
+  const renderPagination = () => {
+    if (totalPages <= 1) return null;
 
-  const totalItemsCount = reviews.length + websiteRequests.length;
+    const pageButtons = [];
+    const maxVisible = 5;
+    let startPage = Math.max(1, currentPage - 2);
+    let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+
+    if (endPage - startPage < maxVisible - 1) {
+      startPage = Math.max(1, endPage - maxVisible + 1);
+    }
+
+    if (startPage > 1) {
+      pageButtons.push(
+        <button key="1" className={`multipart-btn ${currentPage === 1 ? 'active' : ''}`} onClick={() => handlePageChange(1)}>
+          1
+        </button>
+      );
+      if (startPage > 2) {
+        pageButtons.push(<span key="dots-start" className="multipart-ellipsis">...</span>);
+      }
+    }
+
+    for (let p = startPage; p <= endPage; p++) {
+      pageButtons.push(
+        <button
+          key={p}
+          className={`multipart-btn ${currentPage === p ? 'active' : ''}`}
+          onClick={() => handlePageChange(p)}
+        >
+          {p}
+        </button>
+      );
+    }
+
+    if (endPage < totalPages) {
+      if (endPage < totalPages - 1) {
+        pageButtons.push(<span key="dots-end" className="multipart-ellipsis">...</span>);
+      }
+      pageButtons.push(
+        <button key={totalPages} className={`multipart-btn ${currentPage === totalPages ? 'active' : ''}`} onClick={() => handlePageChange(totalPages)}>
+          {totalPages}
+        </button>
+      );
+    }
+
+    const startItem = totalReviewsCount === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+    const endItem = Math.min(currentPage * PAGE_SIZE, totalReviewsCount);
+
+    return (
+      <div className="multipart-pagination-container">
+        <div className="multipart-info">
+          Showing <strong>{startItem} – {endItem}</strong> of <strong>{totalReviewsCount.toLocaleString()}</strong> reviews
+          <span className="multipart-badge">Part {currentPage} of {totalPages} (25/part)</span>
+        </div>
+        <div className="multipart-nav">
+          <button
+            className="multipart-btn"
+            onClick={() => handlePageChange(1)}
+            disabled={currentPage === 1 || loading}
+            title="First Part"
+          >
+            « First
+          </button>
+          <button
+            className="multipart-btn"
+            onClick={() => handlePageChange(currentPage - 1)}
+            disabled={currentPage === 1 || loading}
+            title="Previous Part"
+          >
+            ‹ Prev
+          </button>
+          {pageButtons}
+          <button
+            className="multipart-btn"
+            onClick={() => handlePageChange(currentPage + 1)}
+            disabled={currentPage === totalPages || loading}
+            title="Next Part"
+          >
+            Next ›
+          </button>
+          <button
+            className="multipart-btn"
+            onClick={() => handlePageChange(totalPages)}
+            disabled={currentPage === totalPages || loading}
+            title="Last Part"
+          >
+            Last »
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   return (
-    <div className="dashboard-container">
+    <div className="admin-page-container">
       {/* Page Header */}
       <div className="products-header-card">
-        <h1 className="products-page-title">Admin Review & Moderation Queue</h1>
-        <p className="products-page-subtitle">
-          Verify user-requested websites, inspect flagged reviews, and moderate user submissions
-        </p>
-      </div>
-
-      {/* Summary Filter Cards / Tabs */}
-      <div className="stats-metric-cards" style={{ marginBottom: '1.25rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem' }}>
-        {filterTabs.map((tab) => (
-          <div
-            key={tab.key}
-            className={`metric-stat-card ${statusFilter === tab.key ? 'active-metric-card' : ''}`}
-            style={{
-              cursor: 'pointer',
-              border: statusFilter === tab.key ? '2px solid var(--accent-cyan)' : '1px solid var(--border-color)',
-              background: statusFilter === tab.key ? 'rgba(56, 189, 248, 0.15)' : 'var(--bg-card)'
-            }}
-            onClick={() => setStatusFilter(tab.key)}
-          >
-            <span className="metric-number" style={{ color: tab.key === 'new_requests' && tab.count > 0 ? '#38bdf8' : 'inherit' }}>
-              {tab.count}
-            </span>
-            <span className="metric-name">{tab.label}</span>
+        <div className="products-header-content">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem' }}>
+            <span style={{ fontSize: '1.8rem' }}>🛡️</span>
+            <h1 className="products-page-title">Moderation & Verification Queue</h1>
           </div>
-        ))}
+          <p className="products-page-subtitle">
+            Review user feedback, moderate reported comments, and verify newly submitted website requests with dynamic evaluation parameters.
+          </p>
+        </div>
       </div>
 
-      {/* Feedback Alerts */}
-      {error && <div className="auth-alert error" style={{ margin: '1rem 0' }}>⚠️ {error}</div>}
-      {success && <div className="auth-alert success" style={{ margin: '1rem 0' }}>✓ {success}</div>}
+      {/* Global Alerts */}
+      {error && <div className="admin-alert error" style={{ marginBottom: '1.5rem' }}>⚠️ {error}</div>}
+      {success && <div className="admin-alert success" style={{ marginBottom: '1.5rem' }}>✓ {success}</div>}
 
-      {/* Filter Panel */}
-      <div className="dashboard-section-card" style={{ marginBottom: '1.25rem' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-          <div className="search-box-group">
-            <label className="form-label">Queue Category Filter</label>
-            <select
-              className="category-select"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+      {/* Metric Cards Summary */}
+      <div className="admin-metrics-grid" style={{ marginBottom: '1.5rem' }}>
+        <div
+          className={`metric-card ${statusFilter === 'pending' ? 'active-metric' : ''}`}
+          onClick={() => setStatusFilter(statusFilter === 'pending' ? 'all' : 'pending')}
+          style={{ cursor: 'pointer' }}
+          title="Click to filter by Pending Reviews"
+        >
+          <div className="metric-icon" style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#eab308' }}>⏳</div>
+          <div className="metric-data">
+            <span className="metric-label">Pending Reviews</span>
+            <span className="metric-number" style={{ color: '#eab308' }}>{summary.pending || 0}</span>
+          </div>
+        </div>
+
+        <div
+          className={`metric-card ${statusFilter === 'flagged' ? 'active-metric' : ''}`}
+          onClick={() => setStatusFilter(statusFilter === 'flagged' ? 'all' : 'flagged')}
+          style={{ cursor: 'pointer' }}
+          title="Click to filter by Flagged Reviews"
+        >
+          <div className="metric-icon" style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#8b5cf6' }}>🚩</div>
+          <div className="metric-data">
+            <span className="metric-label">Flagged Reviews</span>
+            <span className="metric-number" style={{ color: '#8b5cf6' }}>{summary.flagged || 0}</span>
+          </div>
+        </div>
+
+        <div
+          className={`metric-card ${statusFilter === 'new_requests' ? 'active-metric' : ''}`}
+          onClick={() => setStatusFilter(statusFilter === 'new_requests' ? 'all' : 'new_requests')}
+          style={{ cursor: 'pointer' }}
+          title="Click to filter by Website Requests"
+        >
+          <div className="metric-icon" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>🌐</div>
+          <div className="metric-data">
+            <span className="metric-label">Website Requests</span>
+            <span className="metric-number" style={{ color: '#38bdf8' }}>{summary.new_requests || 0}</span>
+          </div>
+        </div>
+
+        <div
+          className={`metric-card ${statusFilter === 'approved' ? 'active-metric' : ''}`}
+          onClick={() => setStatusFilter(statusFilter === 'approved' ? 'all' : 'approved')}
+          style={{ cursor: 'pointer' }}
+          title="Click to filter by Approved Reviews"
+        >
+          <div className="metric-icon" style={{ background: 'rgba(34, 197, 94, 0.15)', color: '#22c55e' }}>✓</div>
+          <div className="metric-data">
+            <span className="metric-label">Approved Reviews</span>
+            <span className="metric-number" style={{ color: '#22c55e' }}>{summary.approved || 0}</span>
+          </div>
+        </div>
+
+        <div
+          className={`metric-card ${statusFilter === 'rejected' ? 'active-metric' : ''}`}
+          onClick={() => setStatusFilter(statusFilter === 'rejected' ? 'all' : 'rejected')}
+          style={{ cursor: 'pointer' }}
+          title="Click to filter by Rejected Reviews"
+        >
+          <div className="metric-icon" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}>✕</div>
+          <div className="metric-data">
+            <span className="metric-label">Rejected Reviews</span>
+            <span className="metric-number" style={{ color: '#ef4444' }}>{summary.rejected || 0}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter and Search Bar */}
+      <div className="dashboard-section-card" style={{ marginBottom: '1.5rem', padding: '1.25rem' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center', justifyContent: 'space-between' }}>
+          {/* Status Tabs */}
+          <div className="admin-status-tabs" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+            <button
+              className={`filter-pill-btn ${statusFilter === 'all' ? 'active' : ''}`}
+              onClick={() => setStatusFilter('all')}
             >
-              <option value="all">All Queue Items ({summary.total})</option>
-              <option value="pending">Pending Reviews ({summary.pending})</option>
-              <option value="new_requests">New Website Requests ({summary.new_requests || 0})</option>
-              <option value="flagged">Flagged Reviews ({summary.flagged})</option>
-              <option value="approved">Approved Reviews ({summary.approved})</option>
-              <option value="rejected">Rejected Reviews ({summary.rejected})</option>
-            </select>
+              All Feedback ({summary.total || 0})
+            </button>
+            <button
+              className={`filter-pill-btn ${statusFilter === 'pending' ? 'active' : ''}`}
+              onClick={() => setStatusFilter('pending')}
+            >
+              Pending ({summary.pending || 0})
+            </button>
+            <button
+              className={`filter-pill-btn ${statusFilter === 'flagged' ? 'active' : ''}`}
+              onClick={() => setStatusFilter('flagged')}
+            >
+              Flagged ({summary.flagged || 0})
+            </button>
+            <button
+              className={`filter-pill-btn ${statusFilter === 'new_requests' ? 'active' : ''}`}
+              onClick={() => setStatusFilter('new_requests')}
+            >
+              Website Requests ({summary.new_requests || 0})
+            </button>
+            <button
+              className={`filter-pill-btn ${statusFilter === 'approved' ? 'active' : ''}`}
+              onClick={() => setStatusFilter('approved')}
+            >
+              Approved ({summary.approved || 0})
+            </button>
+            <button
+              className={`filter-pill-btn ${statusFilter === 'rejected' ? 'active' : ''}`}
+              onClick={() => setStatusFilter('rejected')}
+            >
+              Rejected ({summary.rejected || 0})
+            </button>
           </div>
-          <div className="search-box-group">
-            <label className="form-label">Search Items</label>
+
+          {/* Search & Sort Controls */}
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
             <input
               type="text"
-              className="search-input"
-              placeholder="Search by name, website, user, comment, URL..."
+              className="admin-search-input"
+              placeholder="Search user, website, or comments..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              style={{ minWidth: '240px' }}
             />
-          </div>
-          <div className="search-box-group">
-            <label className="form-label">Sort By</label>
             <select
-              className="category-select"
+              className="admin-select"
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
             >
-              <option value="newest">Newest First</option>
-              <option value="oldest">Oldest First</option>
-              <option value="rating-desc">Rating (High → Low)</option>
-              <option value="rating-asc">Rating (Low → High)</option>
+              <option value="newest">Sort by: Newest First</option>
+              <option value="oldest">Sort by: Oldest First</option>
+              <option value="rating-desc">Sort by: Highest Rating</option>
+              <option value="rating-asc">Sort by: Lowest Rating</option>
             </select>
           </div>
         </div>
-        <button
-          className="nav-btn"
-          style={{ marginTop: '1rem' }}
-          onClick={() => {
-            setStatusFilter('all');
-            setSearch('');
-            setSortBy('newest');
-            fetchReviews();
-          }}
-        >
-          Reset Filters
-        </button>
       </div>
 
       {/* =======================================================
-          SECTION 1: NEW WEBSITE REQUESTS (when present)
+          SECTION 1: WEBSITE REQUESTS QUEUE (NEW / SUSPICIOUS)
           ======================================================= */}
-      {websiteRequests.length > 0 && (
-        <div className="dashboard-section-card" style={{ marginBottom: '1.5rem', borderLeft: '4px solid var(--accent-cyan)' }}>
+      {(statusFilter === 'all' || statusFilter === 'pending' || statusFilter === 'new_requests') && websiteRequests.length > 0 && (
+        <div className="dashboard-section-card" style={{ marginBottom: '1.5rem' }}>
           <div className="section-header-flex">
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <span style={{ fontSize: '1.2rem' }}>🌐</span>
-                <h2 className="dashboard-section-title">New Website Requests ({websiteRequests.length})</h2>
+                <h2 className="dashboard-section-title">Website Verification Queue ({websiteRequests.length})</h2>
               </div>
               <p className="dashboard-section-subtitle">
-                User-submitted website requests awaiting administrator verification to be added to the active TrustLens directory.
+                New website requests pending administrative domain validation and category approval.
               </p>
             </div>
           </div>
@@ -286,10 +458,10 @@ const AdminModeration = () => {
               <thead>
                 <tr>
                   <th>Website Name</th>
-                  <th>URL / Domain</th>
+                  <th>Domain / URL</th>
                   <th>Category</th>
-                  <th>Requesting User</th>
-                  <th>Request Date</th>
+                  <th>Submitted By</th>
+                  <th>Date</th>
                   <th>URL Validation</th>
                   <th>Status</th>
                   <th>Actions</th>
@@ -389,7 +561,7 @@ const AdminModeration = () => {
       )}
 
       {/* =======================================================
-          SECTION 2: REVIEW MODERATION QUEUE
+          SECTION 2: REVIEW MODERATION QUEUE (MULTIPART LIST - 25 PER PART)
           ======================================================= */}
       {statusFilter !== 'new_requests' && (
         <div className="dashboard-section-card">
@@ -397,216 +569,223 @@ const AdminModeration = () => {
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <span style={{ fontSize: '1.2rem' }}>💬</span>
-                <h2 className="dashboard-section-title">Review Moderation Queue ({reviews.length})</h2>
+                <h2 className="dashboard-section-title">
+                  Review Moderation Queue ({totalReviewsCount.toLocaleString()} Total)
+                </h2>
               </div>
               <p className="dashboard-section-subtitle">
-                Inspect submitted reviews, verify ratings, and moderate approved/flagged/rejected feedback.
+                Inspect submitted reviews, verify ratings, and moderate feedback. Displaying 25 reviews per part for lightning-fast rendering.
               </p>
             </div>
           </div>
 
           {loading ? (
-            <div className="search-loading">Loading moderation queue...</div>
+            <div className="search-loading">Loading reviews (Part {currentPage})...</div>
           ) : reviews.length === 0 ? (
             <div className="no-results-card">
               <h3>No Reviews Found</h3>
               <p>No user reviews matched your filter criteria.</p>
             </div>
           ) : (
-            <div className="admin-table-wrapper" style={{ marginTop: '1rem' }}>
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>Review ID</th>
-                    <th>User</th>
-                    <th>Website</th>
-                    <th>Rating</th>
-                    <th>Comment</th>
-                    <th>Status & Notes</th>
-                    <th>Submitted Date</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reviews.map((rev) => {
-                    const statusLower = (rev.status || 'approved').toLowerCase();
-                    const isFlagged = statusLower === 'flagged';
-                    const isRejected = statusLower === 'rejected';
-                    const hasSuspiciousNote = isFlagged || (isRejected && rev.moderationNote && /suspicious|fake|spam|duplicate|flag/i.test(rev.moderationNote));
-                    const ratingEntries = getRatingEntries(rev.ratings);
-                    return (
-                      <tr key={rev._id} style={{ background: isFlagged ? 'rgba(139, 92, 246, 0.04)' : 'transparent' }}>
-                        <td>
-                          <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                            {rev._id.slice(0, 12)}...
-                          </span>
-                        </td>
-                        <td>
-                          <div>
-                            <strong style={{ fontSize: '0.9rem' }}>{rev.user ? rev.user.name : 'Deleted User'}</strong>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                              {rev.user ? rev.user.email : ''}
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <div>
-                            <Link to={`/websites/${rev.website ? rev.website._id : '#'}`} style={{ color: 'var(--accent-cyan)', fontSize: '0.9rem', textDecoration: 'none' }}>
-                              {rev.website ? rev.website.name : 'Deleted Website'}
-                            </Link>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                              {rev.website ? rev.website.domain : ''}
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <div style={{ textAlign: 'center' }}>
-                            <span className="review-overall-pill">{rev.overallRating || 'N/A'}★</span>
-                            {ratingEntries.length > 0 && (
-                              <button
-                                className="review-param-toggle-btn"
-                                onClick={() => setExpandedReviewId(expandedReviewId === rev._id ? null : rev._id)}
-                                title="Toggle parameter breakdown"
-                              >
-                                {expandedReviewId === rev._id ? '▲' : '▼'} {ratingEntries.length}p
-                              </button>
-                            )}
-                          </div>
-                          {expandedReviewId === rev._id && ratingEntries.length > 0 && (
-                            <div className="review-params-expanded">
-                              {ratingEntries.map(([k, v]) => (
-                                <span key={k} className="review-param-pill">{k}: {v}★</span>
-                              ))}
-                            </div>
-                          )}
-                        </td>
-                        <td>
-                          <span style={{ fontSize: '0.85rem' }}>
-                            {rev.comment
-                              ? (rev.comment.length > 80 ? rev.comment.slice(0, 80) + '...' : rev.comment)
-                              : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No comment</span>}
-                          </span>
-                        </td>
-                        <td>
-                          <div>
-                            <span className={`status-pill ${statusLower}`}>
-                              ● {statusLower.toUpperCase()}
+            <>
+              <div className="admin-table-wrapper" style={{ marginTop: '1rem' }}>
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Review ID</th>
+                      <th>User</th>
+                      <th>Website</th>
+                      <th>Rating</th>
+                      <th>Comment</th>
+                      <th>Status & Notes</th>
+                      <th>Submitted Date</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reviews.map((rev) => {
+                      const statusLower = (rev.status || 'approved').toLowerCase();
+                      const isFlagged = statusLower === 'flagged';
+                      const isRejected = statusLower === 'rejected';
+                      const hasSuspiciousNote = isFlagged || (isRejected && rev.moderationNote && /suspicious|fake|spam|duplicate|flag/i.test(rev.moderationNote));
+                      const ratingEntries = getRatingEntries(rev.ratings);
+                      return (
+                        <tr key={rev._id} style={{ background: isFlagged ? 'rgba(139, 92, 246, 0.04)' : 'transparent' }}>
+                          <td>
+                            <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                              {rev._id.slice(0, 12)}...
                             </span>
-                            {hasSuspiciousNote && (
-                              <div className="moderation-suspicious-note" style={{ background: 'rgba(139, 92, 246, 0.12)', borderColor: 'rgba(139, 92, 246, 0.3)', color: '#c4b5fd' }}>
-                                ⚠️ Note: Suspicious
+                          </td>
+                          <td>
+                            <div>
+                              <strong style={{ fontSize: '0.9rem' }}>{rev.user ? rev.user.name : 'Deleted User'}</strong>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                {rev.user ? rev.user.email : ''}
                               </div>
-                            )}
-                            {rev.moderationNote && (
-                              <div className="moderation-reason-text">
-                                <strong>Reason:</strong> {rev.moderationNote}
+                            </div>
+                          </td>
+                          <td>
+                            <div>
+                              <Link to={`/websites/${rev.website ? rev.website._id : '#'}`} style={{ color: 'var(--accent-cyan)', fontSize: '0.9rem', textDecoration: 'none' }}>
+                                {rev.website ? rev.website.name : 'Deleted Website'}
+                              </Link>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                {rev.website ? rev.website.domain : ''}
                               </div>
-                            )}
-                          </div>
-                        </td>
-                        <td>
-                          <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                            {formatDate(rev.createdAt)}
-                          </span>
-                        </td>
-                        <td>
-                          <div className="table-actions-cell" style={{ flexWrap: 'wrap' }}>
-                            {/* Moderation Action Buttons */}
-                            {statusLower !== 'approved' && (
-                              <button
-                                className="action-btn-approve"
-                                title="Approve review"
-                                onClick={() => handleUpdateStatus(rev._id, 'approved')}
-                                disabled={actionLoadingId === rev._id}
-                              >
-                                Approve
-                              </button>
-                            )}
-                            {statusLower !== 'rejected' && (
-                              <button
-                                className="action-btn-reject"
-                                title="Reject review"
-                                onClick={() => handleUpdateStatus(rev._id, 'rejected')}
-                                disabled={actionLoadingId === rev._id}
-                              >
-                                Reject
-                              </button>
-                            )}
-                            {statusLower !== 'flagged' && (
-                              <button
-                                className="action-btn-flag"
-                                title="Flag review"
-                                onClick={() => handleUpdateStatus(rev._id, 'flagged')}
-                                disabled={actionLoadingId === rev._id}
-                              >
-                                Flag
-                              </button>
-                            )}
-                            {/* Delete */}
-                            {confirmDeleteId === rev._id ? (
-                              <div className="inline-confirm-dialog">
-                                <span style={{ fontSize: '0.75rem', color: '#fca5a5' }}>Delete?</span>
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ textAlign: 'center' }}>
+                              <span className="review-overall-pill">{rev.overallRating || 'N/A'}★</span>
+                              {ratingEntries.length > 0 && (
                                 <button
-                                  className="confirm-yes-btn"
-                                  onClick={() => handleDeleteReview(rev._id)}
+                                  className="review-param-toggle-btn"
+                                  onClick={() => setExpandedReviewId(expandedReviewId === rev._id ? null : rev._id)}
+                                  title="Toggle parameter breakdown"
+                                >
+                                  {expandedReviewId === rev._id ? '▲' : '▼'} {ratingEntries.length}p
+                                </button>
+                              )}
+                            </div>
+                            {expandedReviewId === rev._id && ratingEntries.length > 0 && (
+                              <div className="review-params-expanded">
+                                {ratingEntries.map(([k, v]) => (
+                                  <span key={k} className="review-param-pill">{k}: {v}★</span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td>
+                            <span style={{ fontSize: '0.85rem' }}>
+                              {rev.comment
+                                ? (rev.comment.length > 80 ? rev.comment.slice(0, 80) + '...' : rev.comment)
+                                : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No comment</span>}
+                            </span>
+                          </td>
+                          <td>
+                            <div>
+                              <span className={`status-pill ${statusLower}`}>
+                                ● {statusLower.toUpperCase()}
+                              </span>
+                              {hasSuspiciousNote && (
+                                <div className="moderation-suspicious-note" style={{ background: 'rgba(139, 92, 246, 0.12)', borderColor: 'rgba(139, 92, 246, 0.3)', color: '#c4b5fd' }}>
+                                  ⚠️ Note: Suspicious
+                                </div>
+                              )}
+                              {rev.moderationNote && (
+                                <div className="moderation-reason-text">
+                                  <strong>Reason:</strong> {rev.moderationNote}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td>
+                            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                              {formatDate(rev.createdAt)}
+                            </span>
+                          </td>
+                          <td>
+                            <div className="table-actions-cell" style={{ flexWrap: 'wrap' }}>
+                              {/* Moderation Action Buttons */}
+                              {statusLower !== 'approved' && (
+                                <button
+                                  className="action-btn-approve"
+                                  title="Approve review"
+                                  onClick={() => handleUpdateStatus(rev._id, 'approved')}
                                   disabled={actionLoadingId === rev._id}
                                 >
-                                  Yes
+                                  Approve
                                 </button>
+                              )}
+                              {statusLower !== 'rejected' && (
                                 <button
-                                  className="confirm-no-btn"
-                                  onClick={() => setConfirmDeleteId(null)}
+                                  className="action-btn-reject"
+                                  title="Reject review"
+                                  onClick={() => handleUpdateStatus(rev._id, 'rejected')}
+                                  disabled={actionLoadingId === rev._id}
                                 >
-                                  No
+                                  Reject
                                 </button>
-                              </div>
-                            ) : (
-                              <button
-                                className="action-btn-delete"
-                                title="Delete review"
-                                onClick={() => setConfirmDeleteId(rev._id)}
-                                disabled={actionLoadingId === rev._id}
-                              >
-                                Delete
-                              </button>
-                            )}
+                              )}
+                              {statusLower !== 'flagged' && (
+                                <button
+                                  className="action-btn-flag"
+                                  title="Flag review"
+                                  onClick={() => handleUpdateStatus(rev._id, 'flagged')}
+                                  disabled={actionLoadingId === rev._id}
+                                >
+                                  Flag
+                                </button>
+                              )}
+                              {/* Delete */}
+                              {confirmDeleteId === rev._id ? (
+                                <div className="inline-confirm-dialog">
+                                  <span style={{ fontSize: '0.75rem', color: '#fca5a5' }}>Delete?</span>
+                                  <button
+                                    className="confirm-yes-btn"
+                                    onClick={() => handleDeleteReview(rev._id)}
+                                    disabled={actionLoadingId === rev._id}
+                                  >
+                                    Yes
+                                  </button>
+                                  <button
+                                    className="confirm-no-btn"
+                                    onClick={() => setConfirmDeleteId(null)}
+                                  >
+                                    No
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  className="action-btn-delete"
+                                  title="Delete review"
+                                  onClick={() => setConfirmDeleteId(rev._id)}
+                                  disabled={actionLoadingId === rev._id}
+                                >
+                                  Delete
+                                </button>
+                              )}
 
-                            {/* Moderation Note Input Toggle */}
-                            <button
-                              className="action-btn-view"
-                              title="Add moderation note"
-                              onClick={() => setExpandedReviewId(expandedReviewId === rev._id ? null : rev._id)}
-                            >
-                              Note
-                            </button>
-                          </div>
-
-                          {/* Moderation Note Input */}
-                          {expandedReviewId === rev._id && (
-                            <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
-                              <input
-                                type="text"
-                                className="quick-param-input"
-                                placeholder="Add moderation note..."
-                                value={moderationNote[rev._id] || ''}
-                                onChange={(e) => setModerationNote({ ...moderationNote, [rev._id]: e.target.value })}
-                              />
+                              {/* Moderation Note Input Toggle */}
                               <button
-                                className="quick-param-add-btn"
-                                onClick={() => handleUpdateStatus(rev._id, statusLower)}
-                                disabled={actionLoadingId === rev._id}
+                                className="action-btn-view"
+                                title="Add moderation note"
+                                onClick={() => setExpandedReviewId(expandedReviewId === rev._id ? null : rev._id)}
                               >
-                                Save Note
+                                Note
                               </button>
                             </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+
+                            {/* Moderation Note Input */}
+                            {expandedReviewId === rev._id && (
+                              <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
+                                <input
+                                  type="text"
+                                  className="quick-param-input"
+                                  placeholder="Add moderation note..."
+                                  value={moderationNote[rev._id] || ''}
+                                  onChange={(e) => setModerationNote({ ...moderationNote, [rev._id]: e.target.value })}
+                                />
+                                <button
+                                  className="quick-param-add-btn"
+                                  onClick={() => handleUpdateStatus(rev._id, statusLower)}
+                                  disabled={actionLoadingId === rev._id}
+                                >
+                                  Save Note
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Multipart Navigation / Pagination Controls */}
+              {renderPagination()}
+            </>
           )}
         </div>
       )}
