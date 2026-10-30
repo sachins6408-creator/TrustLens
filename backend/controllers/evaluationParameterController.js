@@ -83,6 +83,33 @@ const DEFAULT_CATEGORY_PARAMETERS = {
     'Account Control',
     'Platform Reliability'
   ],
+  'Government Services': [
+    'Portal Accessibility & Uptime',
+    'Information Transparency',
+    'Application & Processing Speed',
+    'Data Privacy & Security',
+    'User Interface & Ease of Use',
+    'Grievance Redressal & Support',
+    'Document Verification Reliability'
+  ],
+  'News and Media': [
+    'Reporting Accuracy & Fact-Checking',
+    'Source Transparency',
+    'Editorial Independence',
+    'Content Depth & Quality',
+    'Ad & Subscription Experience',
+    'Correction & Retraction Policy',
+    'Website Performance & Readability'
+  ],
+  'College and University Websites': [
+    'Academic & Curriculum Quality',
+    'Faculty & Research Output',
+    'Campus & Infrastructure Quality',
+    'Placement & Career Opportunities',
+    'Student Portal & LMS Usability',
+    'Admission & Fee Transparency',
+    'Student Support Services'
+  ],
   'Other': [
     'Reliability',
     'User Experience',
@@ -111,16 +138,24 @@ const CATEGORY_ALIASES = {
   'ecommerce': 'E-Commerce',
   'e-commerce': 'E-Commerce',
   'shopping': 'E-Commerce',
-  'college': 'Education',
-  'colleges': 'Education',
-  'university': 'Education',
-  'universities': 'Education',
-  'higher education': 'Education',
-  'college / university': 'Education',
-  'colleges / universities': 'Education',
+  'college': 'College and University Websites',
+  'colleges': 'College and University Websites',
+  'university': 'College and University Websites',
+  'universities': 'College and University Websites',
+  'higher education': 'College and University Websites',
+  'college / university': 'College and University Websites',
+  'colleges / universities': 'College and University Websites',
+  'college and university websites': 'College and University Websites',
   'school': 'Education',
   'schools': 'Education',
-  'academia': 'Education'
+  'academia': 'College and University Websites',
+  'government': 'Government Services',
+  'government services': 'Government Services',
+  'gov': 'Government Services',
+  'news': 'News and Media',
+  'news & media': 'News and Media',
+  'news and media': 'News and Media',
+  'media': 'News and Media'
 };
 
 const normalizeCategory = (cat) => {
@@ -146,6 +181,15 @@ const findDefaultParametersForCategory = (categoryName) => {
   }
 
   // Substring / fuzzy checks
+  if (norm.includes('govern') || norm.includes('publicservice')) {
+    return { category: 'Government Services', parameters: DEFAULT_CATEGORY_PARAMETERS['Government Services'] };
+  }
+  if (norm.includes('news') || norm.includes('journal') || norm.includes('press')) {
+    return { category: 'News and Media', parameters: DEFAULT_CATEGORY_PARAMETERS['News and Media'] };
+  }
+  if (norm.includes('college') || norm.includes('univ')) {
+    return { category: 'College and University Websites', parameters: DEFAULT_CATEGORY_PARAMETERS['College and University Websites'] };
+  }
   if (norm.includes('bank') || norm.includes('financ')) {
     return { category: 'Financial Services', parameters: DEFAULT_CATEGORY_PARAMETERS['Financial Services'] };
   }

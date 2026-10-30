@@ -301,10 +301,78 @@ const deleteWebsite = async (req, res, next) => {
   }
 };
 
+// @desc    Get live database overview statistics (for Database Overview dashboard banner)
+// @route   GET /api/websites/overview-stats
+// @access  Public
+const getDatabaseOverviewStats = async (req, res, next) => {
+  try {
+    const [
+      totalWebsites,
+      totalReviews,
+      categoryCounts,
+      trustDistribution,
+      reviewStatusDistribution
+    ] = await Promise.all([
+      Website.countDocuments(),
+      Review.countDocuments(),
+      Website.aggregate([
+        { $group: { _id: '$category', count: { $sum: 1 } } },
+        { $sort: { count: -1 } }
+      ]),
+      Website.aggregate([
+        { $group: { _id: '$trustCategory', count: { $sum: 1 } } }
+      ]),
+      Review.aggregate([
+        { $group: { _id: '$status', count: { $sum: 1 } } }
+      ])
+    ]);
+
+    const trustBuckets = {
+      trusted: 0,
+      moderatelyTrusted: 0,
+      risky: 0,
+      notRated: 0
+    };
+    trustDistribution.forEach((t) => {
+      if (t._id === 'Trusted') trustBuckets.trusted = t.count;
+      else if (t._id === 'Moderately Trusted') trustBuckets.moderatelyTrusted = t.count;
+      else if (t._id === 'Risky') trustBuckets.risky = t.count;
+      else trustBuckets.notRated += t.count;
+    });
+
+    const reviewStatus = {
+      approved: 0,
+      pending: 0,
+      rejected: 0,
+      flagged: 0
+    };
+    reviewStatusDistribution.forEach((r) => {
+      if (r._id && reviewStatus[r._id] !== undefined) {
+        reviewStatus[r._id] = r.count;
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      stats: {
+        totalWebsites,
+        totalReviews,
+        categoryStats: categoryCounts.map((c) => ({ category: c._id, count: c.count })),
+        trustBuckets,
+        reviewStatus
+      }
+    });
+  } catch (error) {
+    console.error('[Get Database Overview Stats Error]:', error.message);
+    next(error);
+  }
+};
+
 module.exports = {
   getWebsites,
   getWebsiteById,
   getCategories,
+  getDatabaseOverviewStats,
   addWebsite,
   updateWebsiteStatus,
   deleteWebsite

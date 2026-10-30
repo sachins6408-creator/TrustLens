@@ -6,7 +6,9 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch-path=controllers --watch-path=models --watch-path=routes --watch-path=middleware --watch-path=server.js server.js"
+    "dev": "node --watch-path=controllers --watch-path=models --watch-path=routes --watch-path=middleware --watch-path=server.js server.js",
+    "seed": "node seed.js",
+    "expand-dataset": "node scripts/expand_dataset.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

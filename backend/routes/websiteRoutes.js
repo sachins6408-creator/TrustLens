@@ -4,12 +4,16 @@ const {
   getWebsites,
   getWebsiteById,
   getCategories,
+  getDatabaseOverviewStats,
   addWebsite,
   updateWebsiteStatus,
   deleteWebsite
 } = require('../controllers/websiteController');
 const { getRecommendations } = require('../controllers/recommendationController');
 const { protect, admin, optionalProtect } = require('../middleware/authMiddleware');
+
+// GET /api/websites/overview-stats (Live platform statistics for dashboard)
+router.get('/overview-stats', getDatabaseOverviewStats);
 
 // GET /api/websites/categories
 router.get('/categories', getCategories);

@@ -12,6 +12,9 @@ const DEFAULT_CATEGORIES = [
   'Technology',
   'Food & Dining',
   'Social Media',
+  'Government Services',
+  'News and Media',
+  'College and University Websites',
   'Other'
 ];
 

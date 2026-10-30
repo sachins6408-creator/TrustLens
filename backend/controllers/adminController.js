@@ -615,8 +615,7 @@ const adminGetAnalytics = async (req, res, next) => {
         ]),
         Website.aggregate([
           { $group: { _id: '$category', count: { $sum: 1 } } },
-          { $sort: { count: -1 } },
-          { $limit: 10 }
+          { $sort: { count: -1 } }
         ]),
         Review.aggregate([
           { $group: { _id: '$status', count: { $sum: 1 } } }

@@ -2,6 +2,25 @@ const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
+// Path to pre-computed mining results (served instantly, no Python overhead)
+const CACHE_FILE = path.join(__dirname, '..', 'data_mining', 'cached_mining_results.json');
+
+/**
+ * Read cached data mining results from disk.
+ * Returns the parsed JSON or null if the file does not exist / is invalid.
+ */
+const readCache = () => {
+  try {
+    if (fs.existsSync(CACHE_FILE)) {
+      const raw = fs.readFileSync(CACHE_FILE, 'utf-8');
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.warn('[Data Mining Cache]: Failed to read cache file:', e.message);
+  }
+  return null;
+};
+
 let cachedPythonExecutable = null;
 
 /**
@@ -140,8 +159,19 @@ const executePythonMining = (args = []) => {
 // @desc    Get all data mining modules data (Classification, Clustering, Apriori)
 // @route   GET /api/data-mining
 // @access  Public / Authenticated
+// Serves pre-computed cached results instantly (< 5ms) on Render free tier.
+// Pass ?live=true to force a fresh Python run (admin only, slow on free tier).
 const getAllDataMining = async (req, res, next) => {
   try {
+    const forceLive = req.query.live === 'true';
+    if (!forceLive) {
+      const cached = readCache();
+      if (cached) {
+        console.log('[Data Mining]: Serving cached results (all modules).');
+        return res.status(200).json({ ...cached, fromCache: true });
+      }
+    }
+    console.log('[Data Mining]: Running live Python execution (all modules)...');
     const results = await executePythonMining(['all']);
     return res.status(200).json(results);
   } catch (error) {
@@ -158,6 +188,14 @@ const getAllDataMining = async (req, res, next) => {
 // @access  Public / Authenticated
 const getClassification = async (req, res, next) => {
   try {
+    const forceLive = req.query.live === 'true';
+    if (!forceLive) {
+      const cached = readCache();
+      if (cached && cached.classification) {
+        console.log('[Data Mining]: Serving cached classification results.');
+        return res.status(200).json({ ...cached.classification, fromCache: true });
+      }
+    }
     const results = await executePythonMining(['classification']);
     return res.status(200).json(results);
   } catch (error) {
@@ -174,6 +212,14 @@ const getClassification = async (req, res, next) => {
 // @access  Public / Authenticated
 const getClustering = async (req, res, next) => {
   try {
+    const forceLive = req.query.live === 'true';
+    if (!forceLive) {
+      const cached = readCache();
+      if (cached && cached.clustering) {
+        console.log('[Data Mining]: Serving cached clustering results.');
+        return res.status(200).json({ ...cached.clustering, fromCache: true });
+      }
+    }
     const results = await executePythonMining(['clustering']);
     return res.status(200).json(results);
   } catch (error) {
@@ -190,6 +236,14 @@ const getClustering = async (req, res, next) => {
 // @access  Public / Authenticated
 const getApriori = async (req, res, next) => {
   try {
+    const forceLive = req.query.live === 'true';
+    if (!forceLive) {
+      const cached = readCache();
+      if (cached && cached.apriori) {
+        console.log('[Data Mining]: Serving cached Apriori results.');
+        return res.status(200).json({ ...cached.apriori, fromCache: true });
+      }
+    }
     const minSupport = req.body.minSupport || req.query.minSupport || '0.15';
     const minConfidence = req.body.minConfidence || req.query.minConfidence || '0.5';
     const results = await executePythonMining(['apriori', String(minSupport), String(minConfidence)]);

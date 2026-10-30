@@ -12,6 +12,9 @@ const DEFAULT_CATEGORIES = [
   'Technology',
   'Food & Dining',
   'Social Media',
+  'Government Services',
+  'News and Media',
+  'College and University Websites',
   'Other'
 ];
 
@@ -78,6 +81,10 @@ const Dashboard = () => {
 
   // Quick Add Parameter Input state per Category (mapped by category ID)
   const [quickParamInputs, setQuickParamInputs] = useState({});
+
+  // --- Database Overview Live Statistics State ---
+  const [overviewStats, setOverviewStats] = useState(null);
+  const [loadingOverviewStats, setLoadingOverviewStats] = useState(true);
 
   // -------------------------------------------------------------
   // 1. Fetch Websites
@@ -146,6 +153,22 @@ const Dashboard = () => {
       .catch((err) => console.error('Error fetching categories:', err));
   }, []);
 
+  const fetchOverviewStats = useCallback(() => {
+    setLoadingOverviewStats(true);
+    fetch('/api/websites/overview-stats')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.stats) {
+          setOverviewStats(data.stats);
+        }
+        setLoadingOverviewStats(false);
+      })
+      .catch((err) => {
+        console.error('Error fetching overview stats:', err);
+        setLoadingOverviewStats(false);
+      });
+  }, []);
+
   // -------------------------------------------------------------
   // 3. Fetch User Search History
   // -------------------------------------------------------------
@@ -201,7 +224,8 @@ const Dashboard = () => {
   useEffect(() => {
     fetchEvaluationParameters();
     fetchCategories();
-  }, [fetchEvaluationParameters, fetchCategories]);
+    fetchOverviewStats();
+  }, [fetchEvaluationParameters, fetchCategories, fetchOverviewStats]);
 
   useEffect(() => {
     fetchUserHistory();
@@ -769,6 +793,81 @@ const Dashboard = () => {
           )}
         </div>
       </div>
+
+      {/* Live Database Overview Statistics Summary */}
+      {overviewStats && (
+        <div className="dashboard-section-card" style={{ marginBottom: '1.25rem' }}>
+          <div className="section-header-flex" style={{ marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <div>
+              <h2 className="dashboard-section-title">Database Overview & Statistics</h2>
+              <p className="dashboard-section-subtitle">
+                Live metrics retrieved from MongoDB directory & multi-parameter evaluation dataset
+              </p>
+            </div>
+            <button
+              type="button"
+              className="action-btn"
+              style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
+              onClick={fetchOverviewStats}
+              disabled={loadingOverviewStats}
+            >
+              {loadingOverviewStats ? 'Refreshing...' : '🔄 Refresh Stats'}
+            </button>
+          </div>
+          <div className="stats-metric-cards" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.85rem' }}>
+            <div className="metric-stat-card">
+              <span className="metric-number">{overviewStats.totalWebsites?.toLocaleString()}</span>
+              <span className="metric-name">Total Websites</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                {overviewStats.categoryStats?.length || 12} Categories
+              </span>
+            </div>
+            <div className="metric-stat-card">
+              <span className="metric-number">{overviewStats.totalReviews?.toLocaleString()}</span>
+              <span className="metric-name">Total Reviews</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                {overviewStats.reviewStatus?.approved?.toLocaleString()} Approved
+              </span>
+            </div>
+            <div className="metric-stat-card">
+              <span className="metric-number" style={{ color: '#10b981' }}>
+                {overviewStats.trustBuckets?.trusted?.toLocaleString()}
+              </span>
+              <span className="metric-name">Trusted Platforms</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Trust Score &ge; 80
+              </span>
+            </div>
+            <div className="metric-stat-card">
+              <span className="metric-number" style={{ color: '#f59e0b' }}>
+                {overviewStats.trustBuckets?.moderatelyTrusted?.toLocaleString()}
+              </span>
+              <span className="metric-name">Moderately Trusted</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Trust Score 50 - 79
+              </span>
+            </div>
+            <div className="metric-stat-card">
+              <span className="metric-number" style={{ color: '#ef4444' }}>
+                {overviewStats.trustBuckets?.risky?.toLocaleString()}
+              </span>
+              <span className="metric-name">Risky Platforms</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Trust Score &lt; 50
+              </span>
+            </div>
+            <div className="metric-stat-card">
+              <span className="metric-number" style={{ color: '#8b5cf6' }}>
+                {overviewStats.reviewStatus?.flagged?.toLocaleString() || 0}
+              </span>
+              <span className="metric-name">Flagged Reviews</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Moderation Audit
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Dual Search & Add Website Card */}
       <div className="dashboard-section-card">
